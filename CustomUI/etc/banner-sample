@@ -1,0 +1,31 @@
+ __  __  _   _____                               
+|  \/  |(_) / ____|      Redesigned by Lxn :) 
+| \  / | _ | (___    ___  _ __ __   __ ___  _ __ 
+| |\/| || | \___ \  / _ \| '__|\ \ / // _ \| '__|
+| |  | || | ____) ||  __/| |    \ V /|  __/| |   
+|_|  |_||_||_____/  \___||_|     \_/  \___||_|   
+
+[System Info]------------------------------------
+Redesigned by Lxn
+Processor: Broadcom BCM4709 Dual-Core
+Architecture: armv7l
+RAM: 256MB LPDDR3
+[Tips]-------------------------------------------
+frp&Filebrowser: /userdisk/app
+mixbox: /etc/mixbox
+Aria2-NG: /backup/log/aria2
+WoL: etherwake -i br-lan <ur MAC>
+DiskPartsList: lsblk(opkg)
+ROM Part: mount -o remount,rw /dev/sda1
+[Port for Functions]-----------------------------
+Function     | LocalPort | RemotePort
+Filebrowser  | 888       | -
+ServerShell  | 22        | -
+Index        | 8098      | -
+DesktopVNC   | 5900      | -
+AriaRPC      | 2401      | -
+SparePort1   | 3000      | -
+[Parameters]-------------------------------------
+http://bin.entware.net/armv7sf-k2.6/Packages.gz
+=================================================
+

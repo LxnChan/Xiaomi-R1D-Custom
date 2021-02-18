@@ -1,0 +1,6 @@
+开机启动fb和frp
+
+nohup /userdisk/app/filebrowser/filebrowser -d /userdisk/app/filebrowser/filebrowser.db >/dev/null 2>&1 &
+nohup /userdisk/app/frp/frpc -c /userdisk/app/frp/frpc.ini >/dev/null 2>&1 &
+
+上面是增加的部分，添加在exit前面

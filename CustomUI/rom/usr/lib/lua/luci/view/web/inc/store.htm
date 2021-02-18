@@ -1,0 +1,151 @@
+<div class="mod-nav-disk-content">
+    <div class="mod-check" id="modchecktip">
+        <div class="bd clearfix">
+            <div class="hide status-0">
+                <a href="javascript:;" class="btn btn-primary btn-m btn-show-statusdetail" data-status="0"><span><%:查看详情%></span></a>
+                <p><%:硬盘状态%>:<span><%:健康%></span><%:硬盘工作状态良好%></p>
+            </div>
+            <div class="hide status-1">
+                <a href="javascript:;" class="btn btn-primary btn-m btn-show-statusdetail" data-status="1"><span><%:查看详情%></span></a>
+                <p><%:硬盘状态%>:<span><%:有风险%></span><%:硬盘存在不稳定扇区，有数据损坏的可能性。建议定期备份重要数据或更换硬盘。%></p>
+            </div>
+            <div class="hide status-2">
+                <a href="javascript:;" class="btn btn-primary btn-m btn-show-statusdetail" data-status="2"><span><%:查看详情%></span></a>
+                <p><%:硬盘状态%>:<span><%:危险%></span><%:硬盘关键指标异常！ 请尽快备份数据，更换新硬盘%></p>
+            </div>
+        </div>
+    </div>
+    <div class="mod-set mod-cat-io-line clearfix">
+        <div class="cat border-r padding-r">
+            <div class="hd clearfix">
+                <h3 style="width:145px;"><%:文件统计%></h3>
+                <div class="hd-text">
+                    <span><%:总容量%>:<em id="capacity"></em></span>|<span><%:已用%>:<em id="used"></em></span>
+                </div>
+            </div>
+            <div class="bd">
+                <div class="canvas">
+                    <table >
+                        <tr>
+                            <td width="200" valign="middle">
+                                <div class="chart" id="piechartcat" style="width:180px; height:180px;"></div>
+                            </td>
+                            <td valign="top">
+                                <div id="piechartcattable" class="charttable"></div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="io">
+            <div class="hd clearfix">
+                <h3><%:磁盘IO%></h3>
+                <div class="hd-text">
+                    <span><%:读取%>:<em id="rspeed"></em></span>|<span><%:写入%>:<em id="wspeed" style="color:#2673BF;"></em></span>
+                </div>
+            </div>
+            <div class="bd">
+                <div id="ioStatus">
+
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="mod-set mod-off-format-line clearfix">
+       <div class="mod-autooff border-r padding-r">
+            <!-- 其实都没有什么用.jpg
+            <div class="hd">
+                <h3><%:自动休眠%></h3>
+                <div class="switch">
+                    <a class="btn-switch btn-switch-off" id="autodormancyswitch" href="#"></a>
+                </div>
+            </div>
+            <div class="bd">
+                <div class="ico-show">
+                    <img src="<%=resource%>/web/img/ico_autodormancy_show.png" alt="<%:自动休眠%>">
+                </div>
+                <div class="text-show">
+                    <p><%:开启此功能后将在硬盘非工作状态下使其进入休眠状态，以延长硬盘使用寿命。%></p>
+                    <p><%:建议正在使用SSH连接路由器的用户不要开启此功能%></p>
+                </div>
+            </div> -->
+        </div>    
+        <div class="mod-filecheck">
+            <div class="hd">
+                <h3><%:文件系统检测%></h3>
+            </div>
+            <div class="bd">
+                <div class="ico-show">
+                    <img src="<%=resource%>/web/img/ico_autodormancy_show.png" alt="<%:硬盘自动休眠%>">
+                </div>
+                <div class="text-show">
+                    <p><%:此功能可以扫描磁盘文件系统的错误并尝试修复。扫描期间请尽量不要使用您的磁盘，例如下载、硬盘读写等。%></p>
+                    <a href="javascript:;" id="btnCheckNow" class="btn btn-dft btn-l" id=""><span><%:开始检测%></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mod-set mod-file-line clearfix">
+        <!-- 避免误触格式化
+        <div class="mod-format">
+            <div class="hd">
+                <h3><%:格式化硬盘%></h3>
+            </div>
+            <div class="bd">
+                <div class="ico-show">
+                    <img src="<%=resource%>/web/img/ico_format_show.png" alt="<%:格式化硬盘%>">
+                </div>
+                <div class="text-show">
+                    <p><%:清除硬盘中的全部用户数据，例如视频或图片%></p>
+                    <a href="javascript:;" class="btn btn-dft btn-l" id="diskFormatBtn"><span><%:格式化硬盘%></span></a>
+                </div>
+            </div>
+        </div> 
+        -->
+        <div class="mod-file">
+            <div class="hd">
+                <h3><%:文件存储地址%></h3>
+            </div>
+            <div class="bd">
+                <div class="file-info">
+                    <div class="ico-show">
+                        <img src="<%=resource%>/web/img/ico_file_show.png" alt="<%:文件存储地址%>">
+                    </div>
+                    <div class="text-show">
+                        <p><%:通过浏览器查看硬盘内的文件夹%></p>
+                        <a class="btn btn-dft btn-l" id="browser-view"><span><%:立即访问%></span></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="mod-nav-disk-content mod-nav-disk-content-ext hide">
+    <div class="mod-set mod-cat-io-line clearfix">
+        <div class="cat">
+            <div class="hd clearfix">
+                <h3><%:文件类型存储统计%></h3>
+                <div class="hd-text">
+                    <span><%:总容量%>:<em id="extcapacity"></em></span>|<span><%:已用%>:<em id="extused"></em></span>
+                </div>
+            </div>
+            <div class="bd">
+                <div class="canvas">
+                    <table id="noextdiskindexing">
+                        <tr>
+                            <td width="200" valign="middle">
+                                <div class="chart" id="extpiechartcat" style="width:180px; height:180px;"></div>
+                            </td>
+                            <td valign="top">
+                                <div id="extpiechartcattable" class="charttable"></div>
+                            </td>
+                        </tr>
+                    </table>
+                    <p id="extdiskindexing" class="extdiskindexing hide"><%:正在索引中...%></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

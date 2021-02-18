@@ -1,0 +1,49 @@
+<div class="mod-nav-disk">
+    <ul class="nav-disk-ul clearfix">
+        <li class="nav-disk-li active nav-disk-1">
+            <div class="disk-area clearfix">
+                <div class="img-area">
+                    <img class="off" src="<%=resource%>/web/img/icons/harddisc.png" alt="" />
+                    <img class="on" src="<%=resource%>/web/img/icons/harddisc_on.png" alt="" />
+                </div>
+                <div class="cnt-area">
+                    <h2><%:WDBLUE%></h2>
+                    <h3><%:已用%><span class="disk-used"></span> | <%:总容量%><span class="disk-all"></span></h3>
+                    <div class="bar-area clearfix">
+                        <span class="b1"></span>
+                    </div>
+                    <div class="txt-area">
+                        <ul class="clearfix">
+                            <li><%:硬盘接口%> :<em class="value val-if"></em></li>
+                            <li><%:文件系统%> :<em class="value val-fs"></em></li>
+                            <li><%:运行时间%> :<em class="value val-st"></em></li>
+                            <li class="hide"><%:硬盘转速%> :<em class="value val-sp"></em></li>
+                            <li class="last hide"><%:硬盘型号%> :<em class="value val-id"></em></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </li>
+        <li class="nav-disk-li nav-disk-2" style="display:none;">
+            <div class="disk-area clearfix">
+                <div class="img-area">
+                    <img class="off" src="<%=resource%>/web/img/icons/USB.png" alt="" />
+                    <img class="on" src="<%=resource%>/web/img/icons/USB_on.png" alt="" />
+                </div>
+                <div class="cnt-area">
+                    <h2><%:可移动存储%></h2>
+                    <h3><%:已用%><span class="disk-used"></span> | <%:总容量%><span class="disk-all"></span></h3>
+                    <div class="bar-area clearfix">
+                        <span class="b1 isIndexingimg" id="extDiskUsed"></span>
+                    </div>
+                    <div class="txt-area">
+                        <ul class="clearfix">
+                            <li><%:文件系统%> :<em class="value val-fs">---</em></li>
+                            <li><%:硬盘接口%> :<em class="value val-if">---</em></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </li>
+    </ul>
+</div>

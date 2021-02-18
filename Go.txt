@@ -1,0 +1,5 @@
+root@XiaoQiang:/userdisk# opkg install ./go.ipk
+Installing go (1.15.5-1) to root...
+Configuring go.
+Please add /opt/bin/go/bin to your PATH
+Please set GOROOT=/opt/bin/go environment variable to use GO compiler

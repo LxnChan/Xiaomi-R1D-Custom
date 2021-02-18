@@ -1,0 +1,6 @@
+[默认WiFi名称] 默认MAC地址、SN、root密码
+
+MAC地址：
+SN：
+默认root密码：
+改完的密码：

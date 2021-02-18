@@ -1,0 +1,20 @@
+#!/bin/ash
+#---------------------------------------------------------------- 
+# Shell Name：Dayjob
+# Description：Dayjob script
+# Author：Starry
+# E-mail: starry@misstar.com
+# Time：2016-11-06 02:30 CST
+# Copyright © 2016 Misstar Tools. All rights reserved.
+#----------------------------------------------------------------*/
+
+START=99
+STOP=99
+. /etc/misstar/scripts/MTbase
+
+#后台页面守护
+cp /etc/misstar/scripts/index2.lua /usr/lib/lua/luci/controller/web/index2.lua
+rm -rf /tmp/luci-modulecache
+rm -rf /tmp/luci-indexcache
+
+#检查重启服务

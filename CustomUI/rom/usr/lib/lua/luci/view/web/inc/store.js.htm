@@ -1,0 +1,1047 @@
+<%
+-- 磁盘状态js
+local XQLanWanUtil = require("xiaoqiang.util.XQLanWanUtil")
+local lan = XQLanWanUtil.getLanWanInfo("lan")
+local ip = "192.168.31.1"
+if lan.ipv4 and lan.ipv4[1] and lan.ipv4[1].ip then
+    ip = lan.ipv4[1].ip
+end
+%>
+<script>
+//js for r1d store
+(function(){
+    //正在硬盘体检
+    var checkingDialog;
+    //修复
+    var fixingDialog;
+    var routerurl = '<%=ip%>';
+    //是否轮询io状态
+    var chartStatusTimer;
+
+    var diskCheckStatusNumber = 0;
+    var diskCheckStatusTimer;
+    var diskCheckStatusFnTimer;
+
+    var diskrepairerrormsg;
+    var diskFixStatusNumber = 0;
+    var diskFixStatusTimer;
+    var diskFixStatusFnTimer;
+
+    var diskStatus;
+    var diskTimestamp;
+    var harddiskUsedByte = 0;
+    var extdiskUsedByte = 0;
+    var harddiskcapacityByte = 0;
+    var extdiskcapacityByte = 0;
+    var harddiskAvailable = 0;
+    var extdiskAvailable = 0;
+
+    var formatCheckStatusNumber = 0;
+    var formatCheckStatusTimer;
+    var formatCheckStatusFnTimer;
+    // 磁盘状态 urls
+    var url = {
+        //获取磁盘的基本状态信息
+        'disk_info': '<%=luci.dispatcher.build_url("api", "misystem","disk_info")%>',
+        //获取磁盘的IO数据
+        'io_data': '<%=luci.dispatcher.build_url("api", "misystem","io_data")%>',
+        //发起磁盘检测
+        'disk_check': '<%=luci.dispatcher.build_url("api", "misystem","disk_check")%>',
+        //获取磁盘检测状态
+        'disk_check_status': '<%=luci.dispatcher.build_url("api", "misystem","check_status")%>',
+        //发起修复
+        'disk_repair': '<%=luci.dispatcher.build_url("api", "misystem","disk_repair")%>',
+        //修复状态
+        'repair_status': '<%=luci.dispatcher.build_url("api", "misystem","repair_status")%>',
+        //磁盘基本信息,分类信息
+        'datacenter': '<%=luci.dispatcher.build_url("api", "xqdatacenter","request")%>',
+        //磁盘状态(不在关心文件系统状态)
+        'disk_status': '<%=luci.dispatcher.build_url("api", "misystem","disk_status")%>',
+        //获取磁盘的smart信息
+        'disk_smartctl': '<%=luci.dispatcher.build_url("api", "misystem","disk_smartctl")%>'
+    };
+    var util = {
+        parseHour: function(hour) {
+            return Math.floor(parseInt(hour, 10) / 24);
+        },
+        checkItem: ['<%:重新映射的扇区数%>',
+                    '<%:硬盘主轴运转重试数%>',
+                    '<%:扇区数据转移次数%>',
+                    '<%:不稳定状态扇区数%>',
+                    '<%:错误状态扇区数%>',
+                    '<%:文件系统错误%>'
+        ],
+        fixItem: ['<%:重新映射的扇区数%>',
+                    '<%:硬盘主轴运转重试数%>',
+                    '<%:扇区数据转移次数%>',
+                    '<%:不稳定状态扇区数%>',
+                    '<%:错误状态扇区数%>',
+                    '<%:文件系统错误%>'
+        ],
+        formatItem: [  '<%:请稍后...%>'
+        ]
+    };
+
+    var progressAnimate = function( container, time, textArr ){
+        var k = 0;
+        var ktimer;
+        var setNumber = function(){
+            var len = 99;
+            if( k < len ){
+                ktimer = setTimeout(function(){
+                    k++;
+                    container.find('b').html( k );
+                    setNumber();
+                }, time / len );
+            }else{
+                clearTimeout( ktimer );
+            }
+        };
+        var i = 0;
+        var timer;
+        container.find('.check-item').html( textArr[i] );
+        var setText = function(){
+            var len  = textArr.length;
+            if( i < len ){
+                timer = setTimeout(function(){
+                    i++;
+                    container.find('.check-item').html( textArr[i] );
+                    setText();
+                }, time / len );
+            }else{
+                clearTimeout(timer);
+            }
+        };
+        var setProgress = function(){
+            container.find('.per-bar-val').animate(
+                {width: '99%'},
+                time
+            );
+        };
+        setNumber();
+        setText();
+        setProgress();
+    };
+    var getDiskStatus = function(){
+        $.ajax({
+            type: 'GET',
+            url: url.disk_status,
+            dataType: 'json',
+            success: function( rsp ){
+                if( rsp.code == 0 ){
+                    if( rsp.status == 0 ){
+                        //good
+                        $('.status-0').show();
+                    }else if( rsp.status == 1 ){
+                        //fine
+                        $('.status-1').show();
+                    }else if( rsp.status == 2 ){
+                        //critical
+                        $('.status-2').show();
+                    }
+                }else{
+                    $.alert( rsp.msg );
+                }
+            }
+        });
+    };
+    var getDiskSmartctl = function(){
+        $.ajax({
+            type: 'GET',
+            url: url.disk_smartctl,
+            dataType: 'json',
+            success: function( rsp ){
+                if( rsp.code == 0 ){
+                    var tpl = $('#tplSmartTable').html();
+                    var html = '';
+                    html = StringH.tmpl(tpl, {
+                        info: rsp.info
+                    });
+                    $.dialog({
+                        title: '<%:硬盘S.M.A.R.T信息%>',
+                        content: html,
+                        lock: true,
+                        width: 630
+                    });
+                }else{
+                    $.alert( rsp.msg );
+                }
+            }
+        });
+    };
+    // 磁盘基本信息
+    var getBaseinfo = function(){
+        $.getJSON(url.disk_info, function(rsp) {
+            if (rsp.code === 0) {
+                diskStatus = rsp.status;
+                rsp.rorate = rsp.rorate + ' RPM';
+                rsp.poweronhours = util.parseHour(rsp.poweronhours) +'<%:天%>';
+
+                $('.nav-disk-1').find('.val-fs').text(rsp.filesys);
+                $('.nav-disk-1').find('.val-if').text(rsp.sata);
+                $('.nav-disk-1').find('.val-sp').text(rsp.rorate);
+                $('.nav-disk-1').find('.val-st').text(rsp.poweronhours);
+                $('.nav-disk-1').find('.val-id').text(rsp.model);
+            } else {
+                $.alert(rsp.msg);
+            }
+        });
+    };
+
+    // 磁盘空间信息
+    var getDiskData = function(){
+        $.ajax({
+             type: "post",
+             url: url.datacenter,
+             data: {payload:'{"api":26, "needDetail": true}'},
+             datatype: 'json',
+             success: function( rsp ){
+                rsp = $.parseJSON(rsp);
+                if (rsp.code === 0) {
+                    var $el = $('.nav-disk-1');
+                    harddiskcapacityByte = parseInt(rsp.detail.harddisk.capacity, 10);
+                    harddiskUsedByte = parseInt( (rsp.detail.harddisk.capacity - rsp.detail.harddisk.available ), 10);
+                    harddiskAvailable = parseInt(rsp.detail.harddisk.available, 10);
+                    $el.find('.disk-used').text(byteFormat( harddiskUsedByte ));
+                    $el.find('.disk-all').text(byteFormat( harddiskcapacityByte ));
+                    $el.find('.bar-area .b1').css({
+                        width: harddiskUsedByte / harddiskcapacityByte * 100 + '%'
+                    });
+                    $('#capacity').text(byteFormat( harddiskcapacityByte ));
+                    $('#used').text(byteFormat( harddiskUsedByte ));
+                    $('#available').text(byteFormat( harddiskAvailable ));
+                    // $('#freepercent span').text( ( harddiskAvailable / harddiskcapacityByte * 100 ).toFixed(1) );
+                    // extdisk不为0表示有外接磁盘
+                    if (rsp.detail.extdisk.capacity != 0) {
+                        var $el2 = $('.nav-disk-2');
+                        extdiskcapacityByte = parseInt(rsp.detail.extdisk.capacity, 10);
+                        extdiskUsedByte = parseInt( (rsp.detail.extdisk.capacity - rsp.detail.extdisk.available ), 10);
+                        extdiskAvailable = parseInt(rsp.detail.extdisk.available, 10);
+                        $el2.find('.disk-used').text(byteFormat( extdiskUsedByte ));
+                        $el2.find('.disk-all').text(byteFormat( extdiskcapacityByte ));
+                        $el2.find('.bar-area .b1').css({
+                            width: extdiskUsedByte / extdiskcapacityByte * 100 + '%'
+                        });
+                        $el2.show();
+                        $('#extcapacity').text(byteFormat( extdiskcapacityByte ));
+                        $('#extused').text(byteFormat( extdiskUsedByte ));
+                        $('#extavailable').text(byteFormat( extdiskAvailable ));
+                        // $('#extfreepercent span').text( ( extdiskAvailable / extdiskcapacityByte * 100 ).toFixed(1) );
+                    }
+                    diskdetail();
+                }
+             }
+        });
+    };
+
+    // 磁盘分类信息
+    var diskdetail = function(rsp) {
+        $.ajax({
+             type: "post",
+             url: url.datacenter,
+             data: {payload:'{"api":76}'},
+             datatype: 'json',
+             success: function( rsp ){
+                rsp = $.parseJSON(rsp);
+                if (rsp.code === 0) {
+                    $.pub( 'chart:pie_update_cat', rsp.harddisk.info );
+                    if( rsp.extdisk.isIndexing ){
+                        $('#extDiskUsed').addClass('isIndexingimg');
+                        $('#extDiskIndexinghdLi').show();
+                        $('#extdiskindexing').show();
+                        // $('#extfreepercent').hide();
+                        var emptye =
+                            {
+                                "other": {
+                                    "count": 0,
+                                    "size": 0
+                                }
+                            };
+                        $.pub( 'chart:pie_update_cat_ext', emptye );
+                        $('#extpiechartcattable .value').html( '<span style="color:#9D9D9D;"><%:索引中...%></span>');
+                        setTimeout(function(){
+                            diskdetail();
+                        }, 3000);
+                    }else{
+                        $('#extDiskUsed').removeClass('isIndexingimg');
+                        $('#extDiskIndexinghdLi').hide();
+                        $('#extdiskindexing').hide();
+                        // $('#extfreepercent').show();
+                        $.pub( 'chart:pie_update_cat_ext', rsp.extdisk.info );
+                    }
+                }
+             }
+        });
+    };
+
+    //显示检测结果
+    var showCheckResult = function( statusNumber ){
+        var html = '';
+        var resultDialog;
+        switch( statusNumber )
+        {
+            case 2:
+                html = $('#tplDiskCheckResult2').html();
+                break;
+            case 3:
+                html = $('#tplDiskCheckResult3').html();
+                break;
+            case 4:
+                html = $('#tplDiskCheckResult4').html();
+                break;
+            case 5:
+                html = '<%:体检失败:停止插件服务或umount硬盘失败%>';
+                break;
+            case 6:
+                html = '<%:体检失败:未知硬盘无法操作%>';
+                break;
+            case 7:
+                html = '<%:体检失败:未挂载硬盘%>';
+                break;
+            case 8:
+                html = '<%:体检失败:未知错误%>';
+                break;
+            default:
+                //
+        }
+        resultDialog = $.dialog({
+            title: '<%:文件系统错误检查%>',
+            content: html,
+            lock: true,
+            width: 390
+        });
+        //重置为0
+        diskCheckStatusNumber = 0;
+        $('.reload-page').on('click', function(e){
+            e.preventDefault();
+            location.reload();
+        });
+        $('.fixdisknow-btn').on('click', function(e){
+            e.preventDefault();
+            resultDialog.close();
+            fixdisknow();
+        });
+    };
+    //发起磁盘检测
+    var diskCheck = function(){
+        $.ajax({
+            url: url.disk_check,
+            type: "GET",
+            dataType: "json"
+        });
+        diskTimestamp = parseInt( new Date().getTime() / 1000 );
+    };
+
+    var diskCheckStatus = function(){
+        //"status":0/1/2/3/4  (没有开始/正在检测/优/良/差)
+        console.log( 'diskCheckStatusNumber', diskCheckStatusNumber );
+        if( diskCheckStatusNumber < 2 ){
+            $.ajax({
+                url: url.disk_check_status,
+                type: 'GET',
+                datatype: 'json',
+                success: function( res ){
+                    res = $.parseJSON( res );
+                    if( res.code == 0 ){
+                        diskCheckStatusNumber = res.status;
+                        diskCheckStatusTimer = setTimeout( function(){
+                            diskCheckStatus();
+                        }, 1000 );
+                    }
+                }
+            });
+        }else{
+            clearTimeout( diskCheckStatusTimer );
+            checkingDialog.close();
+            diskStatus = diskCheckStatusNumber;
+            showCheckResult( diskCheckStatusNumber );
+        }
+    };
+
+    // 体检
+    var checknow = function(){
+        var check1 = $.dialog({
+            title: '<%:文件系统错误检查%>',
+            content: $('#tplDiskCheck1').html(),
+            lock: true,
+            width: 390,
+            okValue: '<%:立即检查%>',
+            initialize: function(){
+                $('.panel .ft .btn').addClass('btn-l');
+            },
+            ok: function() {
+                check1.close();
+                checkingDialog = $.dialog({
+                    title: '<%:文件系统错误检查%>',
+                    content: $('#tplDiskCheck2').html(),
+                    lock: true,
+                    width: 390,
+                    initialize: function(){
+                        $('.panel-dialog .d-close').hide();
+                        progressAnimate( $('.dialog-format'), 2.5 * 60 * 1000, util.checkItem );
+                        //发起磁盘检测体检大概2.5分钟
+                        diskCheck();
+                        diskCheckStatusFnTimer = setTimeout(function(){
+                            //检测状态
+                            diskCheckStatus();
+                        }, 1.5 * 60 * 1000 );
+                    }
+                });
+            }
+        });
+    };
+
+    //显示修复结果
+    var showFixResult = function( fixStatusNumber ){
+        var html = '';
+        var resultDialog;
+        switch( fixStatusNumber )
+        {
+            case 2:
+                html = $('#tplDiskFixResult2').html();
+                break;
+            case 3:
+                html = $('#tplDiskFixResult3').html();
+                break;
+            case 4:
+                html = '<%:停止插件服务或umount硬盘失败%>';
+                break;
+            default:
+                //
+        }
+        resultDialog = $.dialog({
+            title: '<%:文件系统错误检查%>',
+            content: html,
+            lock: true,
+            width: 390
+        });
+        diskFixStatusNumber = 0;
+        $('.reload-page').on('click', function(e){
+            e.preventDefault();
+            location.reload();
+        });
+        $('.retry').on('click', function(e){
+            e.preventDefault();
+            resultDialog.close();
+            fixdisknow();
+        });
+    };
+    //发起磁盘修复
+    var diskFix = function( callback ){
+        $.ajax({
+            url: url.disk_repair,
+            type: "GET",
+            dataType: "json",
+            success: function( res ){
+                if( res.code == 0 ){
+                    callback && callback();
+                }else{
+                    $.alert( res.msg );
+                }
+            },
+            error: function(){
+                $.alert('<%:发起硬盘修复失败%>');
+            }
+        });
+    };
+
+    // -- 0:没有进行
+    // -- 1:正在修复
+    // -- 2:修复成功
+    // -- 3:修复失败
+    var diskFixStatus = function(){
+        if( diskFixStatusNumber < 2 ){
+            $.ajax({
+                url: url.repair_status,
+                type: 'GET',
+                datatype: 'json',
+                success: function( res ){
+                    res = $.parseJSON( res );
+                    if( res.code == 0 ){
+                        diskFixStatusNumber = res.status;
+                        if( diskFixStatusNumber == 3 ){
+                            diskrepairerrormsg = res.msg;
+                        }
+                        diskFixStatusTimer = setTimeout( function(){
+                            diskFixStatus();
+                        }, 1000 );
+                    }
+                }
+            });
+        }else{
+            clearTimeout( diskFixStatusTimer );
+            fixingDialog.close();
+            showFixResult( diskFixStatusNumber );
+        }
+    };
+
+    var showFixingDialog = function(){
+        fixingDialog = $.dialog({
+            title: '<%:文件系统修复%>',
+            content: $('#tplDiskfixing').html(),
+            lock: true,
+            width: 390,
+            initialize: function(){
+                $('.panel-dialog .d-close').hide();
+                progressAnimate( $('.dialog-format'), 2 * 60 * 1000, util.fixItem );
+                //发起硬盘数据修复
+                diskFix( function(){
+                    diskFixStatusFnTimer = setTimeout(function(){
+                        //检测状态
+                        diskFixStatus();
+                    },  2 * 60 * 1000 );
+                } );
+            },
+            beforeunload: function(){
+                clearTimeout( diskFixStatusFnTimer );
+                clearTimeout( diskFixStatusTimer );
+            }
+        });
+    };
+    // 修复
+    var fixdisknow = function(){
+        showFixingDialog();
+    };
+
+    var showStatusDetail = function( srcElement ){
+        var status = $(srcElement).attr('data-status');
+        var tpl = $('#tplStatusDetail').html();
+        var html = '';
+        html = StringH.tmpl(tpl, {
+            status: status
+        });
+        var statusDialog = $.dialog({
+            title: '<%:硬盘状态%>',
+            content: html,
+            lock: true,
+            width: 410
+        });
+        $('.show-smartctl').on('click', function(e){
+            e.preventDefault();
+            statusDialog.close();
+            getDiskSmartctl();
+        });
+    };
+
+    //顶部切换
+    var changeNavTab = function(){
+        var lis = $('.nav-disk-ul > li');
+        var conts = $('#bd > div');
+        if( lis.length > 1 ){
+            lis.each( function(index, item){
+                $(item).click(function(){
+                    lis.removeClass('active');
+                    $(item).addClass('active');
+                    conts.hide();
+                    conts.eq(index).show();
+                    if( index == 0 ){
+                        chartStatusListener();
+                    }else{
+                        chartStatusStop();
+                    }
+                });
+            } );
+        }
+    };
+
+    //系统类型
+    var getSysType = function(){
+        var os = navigator.platform.match(/(Win|Mac|Linux)/);
+        var x = os && os[1];
+        return x;
+    };
+    //设置浏览器里查看文件
+    var setBrowserViewHref = function(){
+        var sysType = getSysType();
+        if( sysType == 'Mac' ){
+            newrul = 'smb://' + routerurl;
+            $('#browser-view').on('click', function(e){
+                e.preventDefault();
+                window.location.href = newrul;
+            });
+            $('.mod-file-line .mod-format').addClass('border-r padding-r');
+            $('.mod-file-line .mod-file').show();
+        }
+    };
+
+    var formatCheck = function(){
+        $.ajax({
+            url: '<%=luci.dispatcher.build_url("api", "misystem","disk_format_async")%>',
+            type: "GET",
+            dataType: "json"
+        });
+    };
+
+    var formatCheckStatus = function(){
+        // -- 0:未格式化
+        // -- 1:正在格式化
+        // -- 2:格式化成功
+        // -- 3:格式化失败
+        if( formatCheckStatusNumber < 2 ){
+            $.ajax({
+                url: '<%=luci.dispatcher.build_url("api", "misystem","disk_format_status")%>',
+                type: 'GET',
+                datatype: 'json',
+                success: function( res ){
+                    res = $.parseJSON( res );
+                    if( res.code == 0 ){
+                        formatCheckStatusNumber = res.status;
+                        formatCheckStatusTimer = setTimeout( function(){
+                            formatCheckStatus();
+                        }, 1000 );
+                    }
+                }
+            });
+        }else{
+            clearTimeout( formatCheckStatusTimer );
+            if ( formatCheckStatusNumber == 2 ) {
+                format2Dialog.close();
+                var resultDialog = $.dialog({
+                    title: '<%:格式化硬盘%>',
+                    content: $('#tplDiskFormatResult').html(),
+                    lock: true,
+                    width: 390
+                });
+                $('.reload-page').on('click', function(e){
+                    e.preventDefault();
+                    location.reload();
+                });
+            }else{
+                $.alert('<%:格式化失败，请重试。%>');
+            }
+        }
+    };
+
+    //format
+    var formatnow = function(){
+        var format1 = $.dialog({
+            title: '<%:格式化硬盘%>',
+            content: $('#tplDiskFormat').html(),
+            lock: true,
+            width: 390,
+            initialize: function(){
+                $('.panel-dialog .ft .btn-primary').addClass('ft-format-btn');
+            },
+            okValue: '<%:确定格式化%>',
+            cancelValue: '<%:取消%>',
+            cancel: function() {},
+            ok: function(){
+                format1.close();
+                format2Dialog = $.dialog({
+                    title: '<%:正在格式化硬盘%>',
+                    content: $('#tplDiskFormating').html(),
+                    lock: true,
+                    width: 390,
+                    initialize: function(){
+                        $('.panel-dialog .d-close').hide();
+                        formatCheck();
+                        formatCheckStatusFnTimer = setTimeout(function(){
+                            formatCheckStatus();
+                        }, 20);
+                    }
+                });
+            }
+        });
+    };
+
+    var autoDormancy = {
+        getstatus: function(){
+            $.getJSON('<%=luci.dispatcher.build_url("api", "xqsystem", "noflushd")%>', {}, function(rsp){
+                if (rsp.code == 0) {
+                    var autodormancyswitch = $('#autodormancyswitch')[0];
+                    if (rsp.status == 0 || rsp.status == 2) {
+                        autodormancyswitch.className = 'btn-switch btn-switch-off';
+                    }else{ // 开启
+                        autodormancyswitch.className = 'btn-switch btn-switch-on';
+                    }
+                }
+            });
+        },
+        doswitch: function(){
+            var btnautodormancy = $('#autodormancyswitch');
+            btnautodormancy.on('click', function(e){
+                e.preventDefault();
+                var st = $(this).hasClass('btn-switch-on') ? 0 : 1,
+                    btn = this;
+                    btn.className = 'btn-switch btn-switch-off';
+                $.getJSON('<%=luci.dispatcher.build_url("api", "xqsystem", "nof_switch")%>', {'switch': st}, function(rsp){
+                    if (rsp.code == 0) {
+                        if (st == 1) {
+                            btnautodormancy[0].className = 'btn-switch btn-switch-on';
+                        } else {
+                            btnautodormancy[0].className = 'btn-switch btn-switch-off';
+                        }
+                    } else {
+                        $.alert( rsp.msg );
+                    }
+                });
+            });
+        }
+    };
+
+    var chartStatusListener = function(){
+        chartStatusTimer = setInterval(function(){
+            $.pub('chart:getstatus');
+        }, 10 * 1000);
+    };
+    var chartStatusStop = function(){
+        clearInterval( chartStatusTimer );
+    };
+
+    $.sub('chart:lineInit',function(evt, data){
+        $.chartLinerstatusDB = [0,0,0,0,0,0,0,0,0,0];
+        $.chartLinewstatusDB = [0,0,0,0,0,0,0,0,0,0];
+        $.chartLineiostatus = new Linechart({
+            container: document.getElementById('ioStatus'),
+            width: 489,
+            height: 240,
+            maxYval: 120,
+            maxYnum: 6,
+            labelUnit: 'M',
+            lineColor: ["#33cc33", "#2673BF"],
+            dotColor: ["#33cc33", "#2673BF"],
+            areaColor: ["rgba(204,242,204,1)", "rgba(179,206,233,1)"]
+        });
+    });
+
+    $.sub('chart:iostatusUpdate',function(evt, data){
+        var rmem = (data.rrate / 1024 / 1024).toFixed(0);
+        var wmem = (data.wrate / 1024 / 1024).toFixed(0);
+        // var rmem = parseInt( 100 * Math.random() );
+        // var wmem = parseInt( 100 * Math.random() );
+        $.chartLinerstatusDB.push(rmem);
+        $.chartLinewstatusDB.push(wmem);
+        var _rlinedata = $.chartLinerstatusDB.slice(-10);
+        var _wlinedata = $.chartLinewstatusDB.slice(-10);
+        $.chartLineiostatus.updateMutil( _rlinedata, _wlinedata );
+    });
+    $.sub('chart:getstatus', function(){
+        var apiiostatus = url.io_data,
+            apiiostatusData = {};
+
+        $.getJSON(apiiostatus, apiiostatusData, function(res){
+            if ( res.code == 0 ) {
+                $('#rspeed').text( (res.rrate / 1024 / 1024).toFixed(1) + 'M/s' );
+                $('#wspeed').text( (res.wrate / 1024 / 1024).toFixed(1) + 'M/s' );
+                $.pub('chart:iostatusUpdate', res);
+            }
+        });
+    });
+
+    /***圆形图表2个，包括外接**/
+    $.sub('chart:pie_init', function(evt, data){
+        var pieConfigCat = {
+            id : 'piechartcat',
+            wt : 90 * 2,
+            ht : 90 * 2,
+            r : 90,
+            stroke : '#fff',
+            datas: [{value : 1, label : 't1'}],
+            count : {value : 0,label : 'KB'}
+        };
+        $.pieChartCat = new PieChart(pieConfigCat);
+
+        var extpieConfigCat = {
+            id : 'extpiechartcat',
+            wt : 90 * 2,
+            ht : 90 * 2,
+            r : 90,
+            stroke : '#fff',
+            datas: [{value : 1, label : 't1'}],
+            count : {value : 0,label : 'KB'}
+        };
+        $.extpieChartCat = new PieChart(extpieConfigCat);
+    });
+    $.sub('chart:pie_update_cat', function(evt, data){
+
+        // var colorMap = ['#33cc33','#2673bf','#ffaa00','#ff6600','#d96cb5','#d24747','#bf5ef0','#7d74e3'];
+        var count = {};
+        count.value = 0;
+        count.label = 'MB';
+
+        var conf_datas = [
+        {
+            value: harddiskAvailable,
+            label: '<%:可用%>',
+            color: '#bdedd3'
+        },{
+            value: data.timeMachine.size,
+            label: '<%:Time Machine备份%>',
+            color: '#32ccb6'
+        },{
+            value: data.xiaoyiCamera.size,
+            label: '<%:摄像头监控视频%>',
+            color: '#79a0ff'
+        },{
+            value: harddiskUsedByte - ( data.photo.size + data.movie.size + data.music.size + data.doc.size + data.timeMachine.size + data.xiaoyiCamera.size + data.xlShuijing.size),
+            label: '<%:所有文件%>',
+            color: '#ffa700'
+        }];
+        // conf_datas.total = harddiskcapacityByte;
+        // conf_datas.available = {
+        //     value: harddiskAvailable,
+        //     label: '剩余',
+        //     color: '#bdedd3'
+        // }
+
+        count.value = harddiskcapacityByte;
+        var totalCount = (function(val){
+            var ret = byteFormat(val, 10, true);
+            return {
+                value : ret[0],
+                label : ret[1]
+            }
+        })(count.value);
+
+        $.pieChartCat.update(conf_datas, totalCount);
+        $('.canvas .charttable .ico').first().css('background', '#30bf30');
+        $('.canvas .charttable .value').css('color', '#999');
+    });
+    $.sub('chart:pie_update_cat_ext', function(evt, data){
+
+        // var colorMap = ['#33cc33','#2673bf','#ffaa00','#ff6600','#d96cb5','#d24747','#bf5ef0','#7d74e3'];
+        var count = {};
+        count.value = 0;
+        count.label = 'MB';
+
+        var conf_datas = [{
+            value: extdiskAvailable,
+            label: '<%:可用%>',
+            color: '#bdedd3'
+        },{
+            value: extdiskUsedByte - ( data.photo.size + data.movie.size + data.music.size + data.doc.size ),
+            label: '<%:所有文件%>',
+            color: '#ff7600'
+        }];
+        // conf_datas.total = extdiskcapacityByte;
+        // conf_datas.available = {
+        //     value: extdiskAvailable,
+        //     label: '剩余',
+        //     color: '#cccccc'
+        // }
+
+        count.value = extdiskcapacityByte;
+        var totalCount = (function(val){
+            var ret = byteFormat(val, 10, true);
+            return {
+                value : ret[0],
+                label : ret[1]
+            }
+        })(count.value);
+
+        $.extpieChartCat.update(conf_datas, totalCount);
+        $('.canvas .charttable .ico').first().css('background', '#30bf30');
+        $('.canvas .charttable .value').css('color', '#999');
+    });
+
+    var eventBind = function(){
+        //check
+        $('#btnCheckNow').on('click', function(e){
+            e.preventDefault();
+            checknow();
+        });
+        $('.btn-show-statusdetail').on('click', function(e){
+            e.preventDefault();
+            showStatusDetail( this );
+        });
+        //format
+        $('#diskFormatBtn').on( 'click', function(e){
+            e.preventDefault();
+            formatnow();
+        });
+
+        chartStatusListener();
+    };
+    $(function(){
+        getDiskStatus();
+        getBaseinfo();
+        changeNavTab();
+        $.pub('chart:pie_init');
+        getDiskData();
+        $.pub('chart:lineInit');
+        $.pub('chart:getstatus');
+        setBrowserViewHref();
+        eventBind();
+        autoDormancy.getstatus();
+        autoDormancy.doswitch();
+    });
+})();
+</script>
+<script type="text/tmpl" id="tplSmartTable">
+<div class="smarttable">
+<table class="table">
+<thead>
+    <tr>
+        <th class="c1"><%:ID%></th>
+        <th class="c2"><%:名称%></th>
+        <th class="c3"><%:当前值%></th>
+        <th class="c4"><%:最差值%></th>
+        <th class="c5"><%:阈值%></th>
+        <th class="c6"><%:事件计数%></th>
+        <th class="c7"><%:状态%></th>
+    </tr>
+</thead>
+</table>
+<div class="scroll">
+<table class="table">
+{if($info.length > 0)}
+    {for(var i=0; i<$info.length; i++)}
+    <tr>
+        <td class="c1">{$info[i].ID}</td>
+        <td class="c2">{$info[i].ATTRIBUTE_NAME}</td>
+        <td class="c3">{$info[i].VALUE}</td>
+        <td class="c4">{$info[i].WORST}</td>
+        <td class="c5">{$info[i].THRESH}</td>
+        <td class="c6">{$info[i].RAW_VALUE}</td>
+        <td class="c7">{if($info[i].WHEN_FAILED == "-")}<span><%:正常%></span>{else}<span class="red"><%:异常%></span>{/if}</td>
+    </tr>
+    {/for}
+{/if}
+</table>
+</div>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskCheck1">
+<div class="dialog-disk-check1">
+    <p class="img"><img src="<%=resource%>/web/img/disk_check.png" alt=""></p>
+    <p class="text tal"><%:此功能可以扫描磁盘文件系统的错误并尝试修复扫描期间请见谅不要使用您的磁盘，例如下载、硬盘读写等%></p>
+</div>
+</script>
+
+<script type="text/tmpl" id="tplDiskCheck2">
+<div class="dialog-format">
+    <div class="per-text">
+        <b>0</b><span>%</span>
+    </div>
+    <p class="text"><%:磁盘文件越多扫描时间会越长%></p>
+    <div class="per-bar">
+        <div class="per-bar-val"></div>
+    </div>
+</div>
+</script>
+<!--/优 2-->
+<script type="text/tmpl" id="tplDiskCheckResult2">
+<div class="dialog-disk-check-result2">
+    <p class="img">
+        <img src="<%=resource%>/web/img/disk_normal.png" alt="">
+        <img src="<%=resource%>/web/img/ico_check_normal.png" alt="" class="abs">
+    </p>
+    <p class="text"><%:扫描完成%> <br> <%:文件系统一切正常，请放心吧%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-l reload-page"><span><%:确定%></span></a>
+    </div>
+</div>
+</script>
+<!--/良好 3-->
+<script type="text/tmpl" id="tplDiskCheckResult3">
+<div class="dialog-disk-check-result3">
+    <p class="img">
+        <img src="<%=resource%>/web/img/disk_check.png" alt="">
+        <img src="<%=resource%>/web/img/ico_check_error.png" alt="" class="abs">
+    </p>
+    <p class="text"><%:扫描完成%> <br> <%:文件系统存在错误，建议修复%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-l fixdisknow-btn"><span><%:一键修复%></span></a>
+    </div>
+</div>
+</script>
+<!--/差 4-->
+<script type="text/tmpl" id="tplDiskCheckResult4">
+<div class="dialog-disk-check-result4">
+    <p class="img"><img src="<%=resource%>/web/img/ico_disk_err.png" alt=""></p>
+    <p class="text"><%:您的硬盘数据分区存在问题%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-m reload-page"><span><%:完成%></span></a>
+        <a href="#" class="btn btn-dft btn-m view-result"><span><%:查看详情%></span></a>
+    </div>
+</div>
+</script>
+<script type="text/tmpl" id="tplStatusDetail">
+<div class="dialog-status-detail">
+{if($status == 0)}
+    <div class="main">
+        <%:硬盘状态%>:<span class="status-0"><%:健康%></span> <br />
+        <%:硬盘工作状态良好，请放心吧%>
+    </div>
+    <div class="error">
+        <p><%:S.M.A.R.T信息是衡量硬盘健康的关键指标。它会自动监测并记录硬盘硬件如磁头、马达、盘片、电路的运行情况。你的硬盘目前一切正常，请放心使用吧%></p>
+    </div>
+    <a href="#" class="btn btn-dft btn-block show-smartctl"><span><%:查看硬盘S.M.A.R.T信息%></span></a>
+{elseif($status == 1)}
+    <div class="main">
+        <%:硬盘状态%>:<span class="status-1"><%:有风险%></span> <br />
+        <%:硬盘存在不稳定扇区，有数据损坏的可能性。建议定期备份重要数据或更换新硬盘%>
+    </div>
+    <div class="error">
+        <strong><%:异常信息详情%></strong>
+        <p><%:S.M.A.R.T信息是衡量硬盘健康的关键指标。它会自动监测并记录硬盘硬件如磁头、马达、盘片、电路的运行情况。你的硬盘目前存在一些不稳定扇区（可能是磁盘坏道），仍可以继续使用，但是重要数据建议经常备份，以免因为不稳定扇区变多而损坏。%></p>
+    </div>
+    <a href="#" class="btn btn-dft btn-block show-smartctl"><span><%:查看硬盘S.M.A.R.T信息%></span></a>
+{elseif($status == 2)}
+    <div class="main">
+        <%:硬盘状态%>:<span class="status-2"><%:危险%></span> <br />
+        <%:硬盘关键指标异常！请尽快备份数据，更换新硬盘%>
+    </div>
+    <div class="error">
+        <strong><%:异常信息详情%></strong>
+        <p><%:S.M.A.R.T信息是衡量硬盘健康的关键指标。它会自动监测并记录硬盘硬件如磁头、马达、盘片、电路的运行情况。你的硬盘有关键项提示异常，硬盘继续使用的话损坏的风险比较高。建议立刻备份重要数据，更换新的硬盘，以免造成数据损失。%></p>
+    </div>
+    <a href="#" class="btn btn-dft btn-block show-smartctl"><span><%:查看硬盘S.M.A.R.T信息%></span></a>
+</div>
+{/if}
+</script>
+<script type="text/tmpl" id="tplDiskfixing">
+<div class="dialog-format">
+    <div class="per-text">
+        <b>0</b><span>%</span>
+    </div>
+    <p class="text"><%:正在修复%></p>
+    <div class="per-bar">
+        <div class="per-bar-val"></div>
+    </div>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskFixResult2">
+<div class="dialog-disk-fix-result2">
+    <p class="img">
+        <img src="<%=resource%>/web/img/disk_normal.png" alt="">
+        <img src="<%=resource%>/web/img/ico_check_normal.png" alt="" class="abs">
+    </p>
+    <p class="text"><%:修复完成%><br><%:文件系统一切正常，请放心吧%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-l reload-page"><span><%:确定%></span></a>
+    </div>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskFixResult3">
+<div class="dialog-disk-repair">
+    <p class="img">
+        <img src="<%=resource%>/web/img/disk_fix_fail.png" alt="">
+    </p>
+    <p class="text"><%:修复完成%><br><%:无法完成文件系统修复，请重试%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-l retry"><span><%:重试%></span></a>
+    </div>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskFormat">
+<div class="dialog-disk-format">
+    <p class="img"><img src="<%=resource%>/web/img/ico_format.png" alt=""></p>
+    <p class="text"><%:清除硬盘中的全部用户数据，此过程不可恢复，是否确认格式化硬盘？%></p>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskFormating">
+<div class="dialog-format">
+    <div class="loading"></div>
+    <p><%:请勿关闭电源%></p>
+</div>
+</script>
+<script type="text/tmpl" id="tplDiskFormatResult">
+<div class="dialog-disk-format-result">
+    <p class="img"><img src="<%=resource%>/web/img/ico_ok.png" alt=""></p>
+    <p class="text"><%:硬盘格式化完成%></p>
+    <div class="btns clearfix">
+        <a href="#" class="btn btn-primary btn-l reload-page"><span><%:完成%></span></a>
+    </div>
+</div>
+</script>
